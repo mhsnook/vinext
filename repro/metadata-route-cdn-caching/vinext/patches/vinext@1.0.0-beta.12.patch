@@ -1,0 +1,47 @@
+diff --git a/dist/server/metadata-route-response.js b/dist/server/metadata-route-response.js
+index 5709ee2..82d9b0a 100644
+--- a/dist/server/metadata-route-response.js
++++ b/dist/server/metadata-route-response.js
+@@ -2,6 +2,8 @@ import { markFullyBufferedBody } from "./fully-buffered-response.js";
+ import { closeAfterResponse, createRequestContext, runWithRequestContext } from "../shims/unified-request-context.js";
+ import { decodeMatchedParams } from "../routing/utils.js";
+ import { getRequestExecutionContext } from "../shims/request-context.js";
++import { beginRouteCacheability, markRouteCacheabilityExplicitResponsePolicy } from "../shims/cacheability-classification.js";
++import { hasCdnResponsePolicy, hasExplicitNonCacheableResponsePolicy } from "./cache-control.js";
+ import { VINEXT_METADATA_ROUTE_CACHE_HEADER } from "./headers.js";
+ import { notFoundResponse } from "./http-error-responses.js";
+ import { isrCacheControl } from "./isr-cache.js";
+@@ -52,6 +54,7 @@ function metadataRouteCacheHeader(route) {
+ 	return CACHE_HEADERS.revalidate;
+ }
+ function withMetadataRouteCacheHeader(response, route) {
++	if (hasCdnResponsePolicy(response.headers) && !hasExplicitNonCacheableResponsePolicy(response.headers)) markRouteCacheabilityExplicitResponsePolicy();
+ 	const headers = new Headers(response.headers);
+ 	if (!headers.has("Cache-Control")) headers.set("Cache-Control", metadataRouteCacheHeader(route));
+ 	return new Response(response.body, {
+@@ -60,6 +63,9 @@ function withMetadataRouteCacheHeader(response, route) {
+ 		statusText: response.statusText
+ 	});
+ }
++function beginMetadataRouteCacheability(route) {
++	beginRouteCacheability("app-route", route.patternParts ? `/${route.patternParts.join("/")}` : route.servedUrl);
++}
+ function getMetadataRouteFunctions(route) {
+ 	const cached = routeFunctionCache.get(route);
+ 	if (cached) return cached;
+@@ -423,6 +429,7 @@ async function handleMetadataRouteRequest(options) {
+ 		if (route.type === "sitemap" && route.isDynamic) {
+ 			if (functions.generateSitemaps) {
+ 				if (isGeneratedSitemapPath(route, options.cleanPathname)) {
++					beginMetadataRouteCacheability(route);
+ 					const render = async () => {
+ 						setCurrentFetchSoftTags(buildMetadataRouteTags(route, options.cleanPathname, []));
+ 						const response = await handleGeneratedSitemap(route, options.cleanPathname, functions);
+@@ -441,6 +448,7 @@ async function handleMetadataRouteRequest(options) {
+ 		}
+ 		const match = matchMetadataRoute(route, options.cleanPathname, functions, getUrlParts);
+ 		if (!match) continue;
++		beginMetadataRouteCacheability(route);
+ 		const rawParams = route.patternParts ? metadataRouteRawParams(route, match, options.routePathname ?? options.cleanPathname) : Object.create(null);
+ 		if (route.patternParts) {
+ 			const runtimeParams = { ...rawParams };

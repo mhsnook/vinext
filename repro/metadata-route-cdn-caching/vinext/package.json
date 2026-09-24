@@ -1,0 +1,27 @@
+{
+  "name": "repro-metadata-route-cdn-caching-vinext",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vinext dev",
+    "build": "vinext build",
+    "start": "wrangler dev --config dist/server/wrangler.json --port 3000",
+    "deploy": "vinext build && vinext-cloudflare deploy --config dist/server/wrangler.json"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-server-dom-webpack": "19.3.0",
+    "vinext": "1.0.0-beta.12"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.59.0",
+    "@cloudflare/workers-types": "5.20260924.1",
+    "@types/react": "19.3.0",
+    "@vinext/cloudflare": "1.0.0-beta.10",
+    "@vitejs/plugin-rsc": "0.5.35",
+    "typescript": "5.9.3",
+    "vite": "8.3.0",
+    "wrangler": "4.138.0"
+  }
+}
