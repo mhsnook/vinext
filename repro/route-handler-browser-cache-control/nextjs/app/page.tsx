@@ -6,6 +6,7 @@ const routes = [
   ["force-static", 'dynamic = "force-static" and its own Cache-Control'],
   ["config-headers", "Cache-Control from a next.config headers() rule"],
   ["proxy", "Cache-Control set by proxy.ts"],
+  ["bot-blocked", "the same headers as /api/data, on a path proxy.ts matches to block a crawler"],
   ["force-dynamic", 'dynamic = "force-dynamic" and its own Cache-Control'],
   ["private", "Cache-Control: private, max-age=300"],
 ];

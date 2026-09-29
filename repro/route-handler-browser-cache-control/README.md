@@ -11,26 +11,28 @@ Each folder is a standalone project with its own `pnpm-workspace.yaml` and lockf
 
 Both apps have the same routes. Each returns JSON and an `X-Rendered-At` header with its render time, so on a deployment a repeated timestamp means the response came from the edge.
 
-| Route                    | What it sets                                                                                       |
-| ------------------------ | -------------------------------------------------------------------------------------------------- |
-| `/api/data`              | `Cache-Control: max-age=10` and `Cloudflare-CDN-Cache-Control: max-age=3600`                       |
-| `/api/isr`               | `revalidate = 300` and `Cache-Control: public, max-age=300, stale-while-revalidate=86400`          |
-| `/api/cache-control`     | `Cache-Control: public, max-age=300, stale-while-revalidate=86400`                                 |
-| `/api/cdn-cache-control` | `Cache-Control: max-age=10` and `CDN-Cache-Control: max-age=3600`                                  |
-| `/api/force-static`      | `dynamic = "force-static"` and `Cache-Control: public, max-age=300`                                |
-| `/api/config-headers`    | nothing; a `next.config` `headers()` rule sets `Cache-Control: public, max-age=300`                |
-| `/api/proxy`             | nothing; `proxy.ts` sets `Cache-Control: public, max-age=300`                                      |
-| `/api/force-dynamic`     | `dynamic = "force-dynamic"` and `Cache-Control: public, max-age=300, stale-while-revalidate=86400` |
-| `/api/private`           | `Cache-Control: private, max-age=300`                                                              |
+| Route                    | What it sets                                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/data`              | `Cache-Control: max-age=10` and `Cloudflare-CDN-Cache-Control: max-age=3600`                                                           |
+| `/api/isr`               | `revalidate = 300` and `Cache-Control: public, max-age=300, stale-while-revalidate=86400`                                              |
+| `/api/cache-control`     | `Cache-Control: public, max-age=300, stale-while-revalidate=86400`                                                                     |
+| `/api/cdn-cache-control` | `Cache-Control: max-age=10` and `CDN-Cache-Control: max-age=3600`                                                                      |
+| `/api/force-static`      | `dynamic = "force-static"` and `Cache-Control: public, max-age=300`                                                                    |
+| `/api/config-headers`    | nothing; a `next.config` `headers()` rule sets `Cache-Control: public, max-age=300`                                                    |
+| `/api/proxy`             | nothing; `proxy.ts` sets `Cache-Control: public, max-age=300`                                                                          |
+| `/api/bot-blocked`       | the same headers as `/api/data`; `proxy.ts` matches the path, returns 403 to `GPTBot` and passes every other request through unchanged |
+| `/api/force-dynamic`     | `dynamic = "force-dynamic"` and `Cache-Control: public, max-age=300, stale-while-revalidate=86400`                                     |
+| `/api/private`           | `Cache-Control: private, max-age=300`                                                                                                  |
 
 `/api/data` follows the pattern in Vercel's [Cache-Control headers](https://vercel.com/docs/caching/cache-control-headers#example-usage) docs, with Cloudflare's CDN-scoped header in place of Vercel's. Workers Cache consumes `Cloudflare-CDN-Cache-Control` and strips it from the response, and passes `Cache-Control` through to clients ([Workers Cache configuration](https://developers.cloudflare.com/workers/cache/configuration/)).
 
 ## Result
 
 ```sh
-for r in data isr cache-control cdn-cache-control force-static config-headers proxy force-dynamic private; do
+for r in data isr cache-control cdn-cache-control force-static config-headers proxy bot-blocked force-dynamic private; do
   printf '%-18s ' $r; curl -sI http://localhost:3000/api/$r | grep -i '^cache-control'
 done
+curl -sI -A 'GPTBot/1.2' http://localhost:3000/api/bot-blocked | head -1
 ```
 
 | Route                    | vinext: browser `Cache-Control`                     | vinext: Workers Cache policy                        | Next.js (`next start`): browser `Cache-Control`     |
@@ -42,12 +44,34 @@ done
 | `/api/force-static`      | `private, max-age=0, must-revalidate`               | `public, max-age=300`                               | `public, max-age=300`                               |
 | `/api/config-headers`    | `private, max-age=0, must-revalidate`               | `public, max-age=300`                               | `public, max-age=300`                               |
 | `/api/proxy`             | `private, max-age=0, must-revalidate`               | `public, max-age=300`                               | `public, max-age=300`                               |
+| `/api/bot-blocked`       | `private, max-age=0, must-revalidate`               | `public, max-age=3600`                              | `max-age=10`                                        |
 | `/api/force-dynamic`     | `public, max-age=300, stale-while-revalidate=86400` | not stored                                          | `public, max-age=300, stale-while-revalidate=86400` |
 | `/api/private`           | `no-store, must-revalidate`                         | not stored                                          | `private, max-age=300`                              |
 
 The vinext columns come from `vite preview`, which runs the built Worker in workerd. There is no edge cache locally, but the header rewriting happens inside the Worker, so the browser-facing header is the same as on a deployment. The Workers Cache column was read by temporarily adding a header in `finalizeGatewayResponse` that echoes `Cloudflare-CDN-Cache-Control` before the gateway deletes it.
 
 On Vercel, the CDN also removes `s-maxage` and `stale-while-revalidate` before the response reaches the client, so the browser would see `public, max-age=300` for `/api/isr`.
+
+`/api/bot-blocked` returns 403 to a `GPTBot` user agent on both, from the proxy, before the response stage runs.
+
+## With cloudflare/vinext#3540
+
+[cloudflare/vinext#3540](https://github.com/cloudflare/vinext/pull/3540) keeps an admitted route handler's browser lifetime, sent as `private`. It keeps revalidation when middleware can match the path, even when the middleware leaves the request and response unchanged. Tested at the PR head, `0e2b9b6a`, by packing its `vinext` and `@vinext/cloudflare` builds into a copy of `vinext/`. The PR's build needs `@cloudflare/vite-plugin@2.0.0-beta.sha-805ec1ff3` and `cf@1.0.0-beta.1`, the versions its workspace uses.
+
+| Route                    | vinext 1.0.0                                        | vinext with #3540                                    | Next.js                                             |
+| ------------------------ | --------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------- |
+| `/api/data`              | `private, max-age=0, must-revalidate`               | `private, max-age=10`                                | `max-age=10`                                        |
+| `/api/isr`               | `private, max-age=0, must-revalidate`               | `private, max-age=300, stale-while-revalidate=86400` | `public, max-age=300, stale-while-revalidate=86400` |
+| `/api/cache-control`     | `private, max-age=0, must-revalidate`               | `private, max-age=300, stale-while-revalidate=86400` | `public, max-age=300, stale-while-revalidate=86400` |
+| `/api/cdn-cache-control` | `private, max-age=0, must-revalidate`               | `private, max-age=10`                                | `max-age=10`                                        |
+| `/api/force-static`      | `private, max-age=0, must-revalidate`               | `private, max-age=300`                               | `public, max-age=300`                               |
+| `/api/config-headers`    | `private, max-age=0, must-revalidate`               | `private, max-age=300`                               | `public, max-age=300`                               |
+| `/api/proxy`             | `private, max-age=0, must-revalidate`               | `private, max-age=0, must-revalidate`                | `public, max-age=300`                               |
+| `/api/bot-blocked`       | `private, max-age=0, must-revalidate`               | `private, max-age=0, must-revalidate`                | `max-age=10`                                        |
+| `/api/force-dynamic`     | `public, max-age=300, stale-while-revalidate=86400` | `public, max-age=300, stale-while-revalidate=86400`  | `public, max-age=300, stale-while-revalidate=86400` |
+| `/api/private`           | `no-store, must-revalidate`                         | `no-store, must-revalidate`                          | `private, max-age=300`                              |
+
+`/api/bot-blocked` and `/api/data` send the same headers and get the same Workers Cache policy. The only difference is that `proxy.ts` matches `/api/bot-blocked`.
 
 ## Where it happens
 
