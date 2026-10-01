@@ -49,6 +49,14 @@ export default function HashPopstateScrollPage() {
         <h2>Named Anchor</h2>
         <p>This target uses the browser-compatible name fallback.</p>
       </a>
+      <footer style={{ display: "flex", gap: 16, paddingTop: 200 }}>
+        <a href="#nothing-here" id="plain-missing-hash">
+          Plain anchor to a missing fragment
+        </a>
+        <Link href="#nothing-here" id="link-missing-hash">
+          Link to a missing fragment
+        </Link>
+      </footer>
     </main>
   );
 }

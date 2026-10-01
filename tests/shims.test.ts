@@ -20283,8 +20283,9 @@ describe("Pages Router concurrent navigation", () => {
     (globalThis as any).CustomEvent = class CustomEventMock {
       constructor(public type: string) {}
     } as any;
+    const fragmentTarget = { scrollIntoView: vi.fn() };
     (globalThis as any).document = {
-      getElementById: vi.fn(() => null),
+      getElementById: vi.fn((id: string) => (id === "fragment" ? fragmentTarget : null)),
       getElementsByName: vi.fn(() => []),
     };
 
@@ -20342,7 +20343,7 @@ describe("Pages Router concurrent navigation", () => {
       await vi.waitFor(() =>
         expect(events).toContainEqual(["routeChangeComplete", redirectHeader]),
       );
-      await vi.waitFor(() => expect(win.scrollTo).toHaveBeenCalled());
+      await vi.waitFor(() => expect(fragmentTarget.scrollIntoView).toHaveBeenCalled());
 
       expect(fetch).toHaveBeenNthCalledWith(
         1,

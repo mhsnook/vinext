@@ -22,6 +22,21 @@ test.describe("Next.js compat: hash popstate scroll", () => {
     }).toPass();
   }
 
+  async function readScrollY(page: Page) {
+    return page.evaluate(() => window.scrollY);
+  }
+
+  // vinext's popstate scroll runs on the next animation frame, so wait past it
+  // before asserting that nothing moved.
+  async function waitForFrames(page: Page) {
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+  }
+
   async function expectHashForwardTraversal(
     page: Page,
     linkSelector: string,
@@ -244,5 +259,37 @@ test.describe("Next.js compat: hash popstate scroll", () => {
     await page.goForward();
     await expect(page).toHaveURL(`${BASE}/nextjs-compat/hash-popstate-scroll#top`);
     await expectScrollY(page, 0);
+  });
+
+  // The HTML spec's "scroll to the fragment" leaves the page where it is when
+  // no element matches, except for an empty fragment or #top. Next.js
+  // layout-router treats a missing hash target as handled without scrolling:
+  // https://github.com/vercel/next.js/blob/canary/packages/next/src/client/components/layout-router.tsx
+  test("a plain anchor to a missing fragment keeps the scroll position", async ({ page }) => {
+    await page.goto(`${BASE}/nextjs-compat/hash-popstate-scroll`);
+    await waitForAppRouterHydration(page);
+
+    await page.locator("#plain-missing-hash").scrollIntoViewIfNeeded();
+    const scrollY = await readScrollY(page);
+    expect(scrollY).toBeGreaterThan(0);
+
+    await page.click("#plain-missing-hash");
+    await expect(page).toHaveURL(`${BASE}/nextjs-compat/hash-popstate-scroll#nothing-here`);
+    await waitForFrames(page);
+    expect(await readScrollY(page)).toBe(scrollY);
+  });
+
+  test("a Link to a missing fragment keeps the scroll position", async ({ page }) => {
+    await page.goto(`${BASE}/nextjs-compat/hash-popstate-scroll`);
+    await waitForAppRouterHydration(page);
+
+    await page.locator("#link-missing-hash").scrollIntoViewIfNeeded();
+    const scrollY = await readScrollY(page);
+    expect(scrollY).toBeGreaterThan(0);
+
+    await page.click("#link-missing-hash");
+    await expect(page).toHaveURL(`${BASE}/nextjs-compat/hash-popstate-scroll#nothing-here`);
+    await waitForFrames(page);
+    expect(await readScrollY(page)).toBe(scrollY);
   });
 });
